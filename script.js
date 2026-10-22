@@ -52,30 +52,65 @@ function findCat(id) {
     return null;
 }
 
-// tappable option: shows `label`, sends `cmd` (the chat bubble shows the label)
-function opt(cmd, label) {
-    opts.push({ cmd: cmd, label: label });
-    return "<span class='opt' onclick='quickN(" + (opts.length - 1) + ")'>" + esc(label) + "</span>";
+// ---------- date helpers ----------
+function parseD(str) { var p = str.split("-"); return new Date(+p[0], +p[1] - 1, +p[2]); }
+function dayDiff(str) {
+    var n = new Date();
+    var today = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+    return Math.round((parseD(str) - today) / 86400000);
+}
+function fmtDate(str) {
+    return parseD(str).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+function whenText(d) {
+    if (d === 0) return "Today";
+    if (d === 1) return "Tomorrow";
+    if (d > 1) return "in " + d + " days";
+    if (d === -1) return "Yesterday";
+    return Math.abs(d) + " days ago";
+}
+function urgency(d) { return d < 0 ? "past" : d <= 3 ? "urgent" : d <= 7 ? "soon" : "ok"; }
+function byDateAsc(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; }
+function upcomingOf(cat) { return cat.items.filter(function (i) { return dayDiff(i.date) >= 0; }).sort(byDateAsc); }
+function nextOfSubject(s) {
+    var all = [];
+    s.cats.forEach(function (c) { all = all.concat(upcomingOf(c)); });
+    return all.sort(byDateAsc)[0] || null;
+}
+
+// ---------- tappable options (the chat bubble shows `label`, the bot receives `cmd`) ----------
+function reg(cmd, label) { opts.push({ cmd: cmd, label: label }); return opts.length - 1; }
+function optBtn(cmd, label) {
+    return "<span class='btn' onclick='quickN(" + reg(cmd, label) + ")'>" + esc(label) + "</span>";
+}
+function optCard(cmd, label, innerHtml) {
+    return "<div class='subj-card' onclick='quickN(" + reg(cmd, label) + ")'>" + innerHtml + "</div>";
 }
 function quickN(i) { sendMsg(opts[i].cmd, opts[i].label); }
 
 function menuHtml() {
-    var html = "";
-    if (!subjects.length) html += "No subjects yet.<br>";
+    var html = "<div class='sec'>Subjects</div>";
+    if (!subjects.length) html += "<div class='empty'>No subjects yet. Use Add to create one.</div>";
     subjects.forEach(function (s, i) {
-        var what = s.cats.map(function (c) { return c.label; }).join(", ") || "no lists yet";
-        html += opt("go s" + s.id, (i + 1) + ". " + s.name) + "<br>&nbsp;&nbsp;" + esc(what) + "<br>";
+        var nx = nextOfSubject(s);
+        var line = nx ? "Next: " + nx.title + " · " + whenText(dayDiff(nx.date)) : "Nothing upcoming";
+        html += optCard("go s" + s.id, (i + 1) + ". " + s.name,
+            "<span class='n'>" + (i + 1) + "</span><div><div class='t'>" + esc(s.name) + "</div>" +
+            "<div class='d'>" + (s.teacher ? esc(s.teacher) + "<br>" : "") + esc(line) + "</div></div>");
     });
     var n = subjects.length;
-    return html + "<br>" +
-        opt("add", (n + 1) + ". Add") + " - item, list or subject (password)<br>" +
-        opt("edit", (n + 2) + ". Edit") + " - item, list or subject (password)<br>" +
-        opt("delete", (n + 3) + ". Delete") + " - item, list or subject (password)<br>" +
-        opt("clear", (n + 4) + ". Clear") + " - clear conversation";
+    html += "<div class='sec'>Manage (password)</div><div class='btns'>" +
+        optBtn("add", "➕ Add (" + (n + 1) + ")") +
+        optBtn("edit", "✏️ Edit (" + (n + 2) + ")") +
+        optBtn("delete", "🗑️ Delete (" + (n + 3) + ")") + "</div>";
+    html += "<div class='sec'>More</div><div class='btns'>" +
+        optBtn("next", "📅 What's next") +
+        optBtn("clear", "🧹 Clear (" + (n + 4) + ")") + "</div>";
+    return html;
 }
 
 function showMenu() {
-    sendTextMessage("<span class='sk'>Back to the main menu:<br><br>" + menuHtml() + "</span>");
+    sendTextMessage("<div class='card'><div class='card-title'>Main menu</div>" + menuHtml() + "</div>");
 }
 
 function setInputType() {
@@ -119,61 +154,65 @@ function formatDate(d) {
     return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
-function byLine(a) {
-    return a.by ? "&nbsp;&nbsp;<i>updated by " + esc(a.by) + "</i><br>" : "";
+function itemRow(it, extra) {
+    var d = dayDiff(it.date), u = urgency(d);
+    return "<div class='it " + u + "'><div><div class='t'>" + esc(it.title) + "</div><div class='d'>" +
+        (extra ? esc(extra) + " · " : "") + esc(fmtDate(it.date)) + (it.by ? " · updated by " + esc(it.by) : "") +
+        "</div></div><span class='chip " + u + "'>" + whenText(d) + "</span></div>";
 }
 
 function buildSection(subj, cat) {
-    var now = new Date();
+    var up = upcomingOf(cat);
+    var prev = cat.items.filter(function (i) { return dayDiff(i.date) < 0; }).sort(byDateAsc).reverse();
 
-    var items = cat.items.map(function (a) {
-        var p = a.date.split("-");
-        return { title: a.title, by: a.by, dueDate: new Date(+p[0], +p[1] - 1, +p[2], 23, 59, 59) };
-    });
+    var html = "<div class='card'><div class='card-title'>" + esc(cat.label) + "</div>" +
+        "<div class='card-sub'>" + esc(subj.name) + (subj.teacher ? " · " + esc(subj.teacher) : "") + "</div>" +
+        "<div class='card-sub'>" + up.length + " upcoming · " + prev.length + " previous</div>";
 
-    var upcoming = items.filter(function (a) { return a.dueDate >= now; })
-        .sort(function (a, b) { return a.dueDate - b.dueDate; });
-    var previous = items.filter(function (a) { return a.dueDate < now; })
-        .sort(function (a, b) { return b.dueDate - a.dueDate; });
+    html += "<div class='sec'>Upcoming</div>";
+    html += up.length ? up.map(function (i) { return itemRow(i); }).join("") : "<div class='empty'>Nothing upcoming.</div>";
 
-    var html = "<span class='sk'><span class='bold'>" + esc(subj.name) + " - " + esc(cat.label) +
-        "</span><br>Today: " + formatDate(now) + "<br><br>";
-
-    html += "<span class='bold'>Upcoming</span><br>";
-    if (upcoming.length === 0) {
-        html += "Nothing upcoming.<br>";
-    } else {
-        upcoming.forEach(function (a) {
-            var days = Math.ceil((a.dueDate - now) / 86400000);
-            var left = days <= 1 ? "today/tomorrow" : days + " days left";
-            html += "&bull; " + esc(a.title) + "<br>&nbsp;&nbsp;" + formatDate(a.dueDate) + " (" + left + ")<br>" + byLine(a);
-        });
+    if (prev.length) {
+        html += "<details><summary>Previous (" + prev.length + ")</summary>" +
+            prev.map(function (i) { return itemRow(i); }).join("") + "</details>";
     }
-
-    html += "<br><span class='bold'>Previous</span><br>";
-    if (previous.length === 0) {
-        html += "Nothing previous.<br>";
-    } else {
-        previous.forEach(function (a) {
-            html += "&bull; " + esc(a.title) + "<br>&nbsp;&nbsp;" + formatDate(a.dueDate) + "<br>" + byLine(a);
-        });
-    }
-    return html + "</span>";
+    html += "<div class='btns'>" + optBtn("go s" + subj.id, "← Back") + optBtn("help", "🏠 Menu") + "</div></div>";
+    return html;
 }
 
 function subjectMenu(subj) {
-    var html = "<span class='sk'><span class='bold'>" + esc(subj.name) + "</span><br>";
-    if (subj.teacher) html += "Teacher: " + esc(subj.teacher) + "<br>";
-    html += "<br>";
+    var html = "<div class='card'><div class='card-title'>" + esc(subj.name) + "</div>";
+    if (subj.teacher) html += "<div class='card-sub'>Teacher: " + esc(subj.teacher) + "</div>";
     if (!subj.cats.length) {
-        html += "No lists yet.<br>";
+        html += "<div class='empty'>No lists yet.</div>";
     } else {
-        html += "Tap one:<br>";
+        html += "<div class='sec'>Lists</div>";
         subj.cats.forEach(function (c, i) {
-            html += opt("go c" + c.id, (i + 1) + ". " + c.label) + "<br>";
+            var up = upcomingOf(c);
+            var line = up.length ? up.length + " upcoming · next " + whenText(dayDiff(up[0].date)).toLowerCase() : "Nothing upcoming";
+            html += optCard("go c" + c.id, (i + 1) + ". " + c.label,
+                "<span class='n'>" + (i + 1) + "</span><div><div class='t'>" + esc(c.label) + "</div>" +
+                "<div class='d'>" + esc(line) + " · " + c.items.length + " total</div></div>");
         });
     }
-    return html + "<br>" + opt("help", "Back to menu") + "</span>";
+    return html + "<div class='btns'>" + optBtn("help", "🏠 Menu") + "</div></div>";
+}
+
+function nextOverview() {
+    var all = [];
+    subjects.forEach(function (s) {
+        s.cats.forEach(function (c) {
+            c.items.forEach(function (i) { if (dayDiff(i.date) >= 0) all.push({ it: i, s: s, c: c }); });
+        });
+    });
+    all.sort(function (x, y) { return byDateAsc(x.it, y.it); });
+    all = all.slice(0, 8);
+    var html = "<div class='card'><div class='card-title'>📅 What's next</div>" +
+        "<div class='card-sub'>Closest deadlines across all subjects</div><div class='sec'>Upcoming</div>";
+    html += all.length
+        ? all.map(function (x) { return itemRow(x.it, x.s.name + " · " + x.c.label); }).join("")
+        : "<div class='empty'>Nothing upcoming.</div>";
+    return html + "<div class='btns'>" + optBtn("help", "🏠 Menu") + "</div></div>";
 }
 
 // ---------- sending / receiving ----------
@@ -230,15 +269,17 @@ function waitAndResponce(inputText) {
     switch (cmd) {
         case "intro":
             setTimeout(() => {
-                sendTextMessage("Welcome to <span class='bold'>" + esc(GROUP_NAME) + "</span> 👋🏻<br><br><span class='sk'>Type or tap an option:<br><br>" + menuHtml() + "</span>");
+                sendTextMessage("<div class='card'><div class='card-title'>Welcome to " + esc(GROUP_NAME) + " 👋🏻</div>" +
+                    "<div class='card-sub'>Tap a subject, or type its number or part of its name.</div>" + menuHtml() + "</div>");
             }, 800);
             return;
         case "help":
         case "menu":
         case "back":
-            loadData().then(function () {
-                sendTextMessage("<span class='sk'>Type or tap an option:<br><br>" + menuHtml() + "</span>");
-            });
+            loadData().then(function () { showMenu(); });
+            return;
+        case "next":
+            loadData().then(function () { sendTextMessage(nextOverview()); });
             return;
         case "add":
         case "edit":
