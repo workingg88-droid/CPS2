@@ -52,7 +52,7 @@ nav{
     -webkit-overflow-scrolling:touch;
     scrollbar-width:none;
     -ms-overflow-style:none;
-    padding:6px max(4px,env(safe-area-inset-right)) 6px max(4px,env(safe-area-inset-left));
+    padding:4px max(4px,env(safe-area-inset-right)) 8px max(4px,env(safe-area-inset-left));
 }
 .scrollable .chatting::-webkit-scrollbar{display:none}
 
@@ -61,8 +61,7 @@ nav{
     display:flex;
     flex-direction:column;
     width:100%;
-    min-height:100%;
-    justify-content:flex-end;   /* short chats sit at the bottom like a messenger */
+    justify-content:flex-start; /* messages start right under the header, no gap */
 }
 #listUL li{display:flex;width:100%}
 
