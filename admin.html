@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>CPS2 admin</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<style>
+:root{
+  --bg:#111b21; --panel:#1a252c; --field:#2a3942; --line:#2f424c;
+  --text:#e9edef; --muted:#8696a0; --teal:#00a884; --amber:#e0a030; --red:#e04f5f;
+}
+*{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Verdana,sans-serif}
+body{background:var(--bg);color:var(--text);line-height:1.45;padding-bottom:80px}
+a{color:var(--amber)}
+.top{position:sticky;top:0;z-index:5;background:#202c33;border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:12px;padding:12px 16px}
+.top h1{font-size:17px;font-weight:700;flex:1}
+.top .who{font-size:13px;color:var(--muted)}
+main{max-width:780px;margin:0 auto;padding:16px}
+button,input{font:inherit;color:var(--text)}
+input{background:var(--field);border:1px solid transparent;border-radius:8px;padding:8px 10px;min-width:0;width:100%}
+input:focus{outline:2px solid var(--teal);outline-offset:0}
+button{background:var(--field);border:0;border-radius:8px;padding:8px 14px;cursor:pointer;white-space:nowrap}
+button:hover{background:#365462}
+button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+button.primary{background:var(--teal);color:#04241c;font-weight:700}
+button.primary:hover{background:#12c29b}
+button.danger{background:transparent;color:var(--red);border:1px solid #5c2229}
+button.danger:hover{background:#3a1c21}
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
+
+.login{max-width:360px;margin:12vh auto 0;background:var(--panel);border-radius:14px;padding:24px}
+.login h2{font-size:20px;margin-bottom:4px}
+.login p{color:var(--muted);font-size:14px;margin-bottom:16px}
+.login .f{margin-bottom:12px}
+.login button{width:100%;margin-top:6px;padding:10px}
+
+.newsubj{background:var(--panel);border-radius:12px;padding:16px;margin-bottom:20px}
+.newsubj h2{font-size:16px;margin-bottom:10px}
+.grid{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
+
+details.subj{background:var(--panel);border-radius:12px;margin-bottom:12px;border:1px solid transparent}
+details.subj[open]{border-color:var(--line)}
+details.subj>summary{list-style:none;cursor:pointer;padding:14px 16px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+details.subj>summary::-webkit-details-marker{display:none}
+details.subj>summary::before{content:"▸";color:var(--muted);transition:transform .15s}
+details.subj[open]>summary::before{transform:rotate(90deg)}
+.sname{font-weight:700;font-size:16px}
+.meta{font-size:13px;color:var(--muted)}
+.body{padding:4px 16px 16px}
+.subjhead{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.actions{display:flex;gap:8px;grid-column:1/-1}
+
+.cat{border-top:1px solid var(--line);padding-top:14px;margin-top:16px}
+.cathead{display:flex;gap:8px;margin-bottom:10px}
+.cathead input{font-weight:700;color:var(--amber)}
+.item{display:grid;grid-template-columns:1fr 150px auto auto;gap:8px;align-items:center;margin-bottom:8px}
+.by{grid-column:1/-1;font-size:12px;color:var(--muted);margin:-4px 0 4px 2px}
+.item.add{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)}
+.addcat{display:flex;gap:8px;border-top:1px solid var(--line);margin-top:18px;padding-top:14px}
+.empty{color:var(--muted);font-size:14px;padding:8px 0}
+
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#0b3d33;color:#d6fff3;
+  padding:10px 18px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw;z-index:10}
+#toast.show{opacity:1}
+#toast.bad{background:#4a1b21;color:#ffd4d8}
+
+@media (max-width:640px){
+  .grid{grid-template-columns:1fr}
+  .subjhead{grid-template-columns:1fr}
+  .item{grid-template-columns:1fr 1fr}
+  .item input[type=text]{grid-column:1/-1}
+  .item button{width:100%}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div id="loginView" class="login">
+  <h2>Editor login</h2>
+  <p>Sign in to manage courses, lists and deadlines.</p>
+  <form id="loginForm" autocomplete="on">
+    <div class="f"><label for="lname">Name</label><input id="lname" autocomplete="username" required></div>
+    <div class="f"><label for="lpass">Password</label><input id="lpass" type="password" autocomplete="current-password" required></div>
+    <button class="primary" type="submit">Sign in</button>
+  </form>
+  <p style="margin:14px 0 0"><a href="index.html">Back to the chat</a></p>
+</div>
+
+<div id="appView" hidden>
+  <div class="top">
+    <h1>CPS2 admin</h1>
+    <span class="who" id="who"></span>
+    <a href="index.html" style="font-size:13px">View chat</a>
+    <button id="logoutBtn">Sign out</button>
+  </div>
+  <main>
+    <section class="newsubj">
+      <h2>Add a course</h2>
+      <div class="grid">
+        <div><label for="ns-name">Course name</label><input id="ns-name" placeholder="e.g. Databases"></div>
+        <div><label for="ns-teacher">Teacher</label><input id="ns-teacher" placeholder="e.g. Prof. Jane Doe"></div>
+        <button class="primary" data-act="add-subject">Add course</button>
+      </div>
+    </section>
+    <div id="list"></div>
+  </main>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+var auth = null;          // { name, pass } kept in memory only
+var subjects = [];
+var openSubj = {};        // remembers which courses are expanded
+
+function $(id) { return document.getElementById(id); }
+function esc(t) {
+    return String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+var toastTimer;
+function toast(msg, bad) {
+    var t = $("toast");
+    t.textContent = msg;
+    t.className = "show" + (bad ? " bad" : "");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.className = bad ? "bad" : ""; }, 3200);
+}
+function byPos(a, b) { return (a.position - b.position) || (a.id - b.id); }
+
+// ---------- login ----------
+$("loginForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var r = await sb.rpc("editor_login", { p_name: $("lname").value, p_pass: $("lpass").value });
+    if (r.error) {
+        toast(/Invalid credentials/i.test(r.error.message) ? "Wrong name or password." : r.error.message, true);
+        return;
+    }
+    auth = { name: r.data, pass: $("lpass").value };
+    $("lpass").value = "";
+    showApp();
+});
+$("logoutBtn").addEventListener("click", function () {
+    auth = null;
+    $("loginView").hidden = false;
+    $("appView").hidden = true;
+});
+function showApp() {
+    $("loginView").hidden = true;
+    $("appView").hidden = false;
+    $("who").textContent = "Signed in as " + auth.name;
+    load();
+}
+
+// ---------- data ----------
+async function load() {
+    var res = await sb.from("subjects")
+        .select("id,name,teacher,position,categories(id,label,position,items(id,title,date,updated_by))");
+    if (res.error) { toast("Could not load data: " + res.error.message, true); return; }
+    subjects = res.data.map(function (s) {
+        return {
+            id: s.id, name: s.name, teacher: s.teacher, position: s.position,
+            cats: (s.categories || []).map(function (c) {
+                return {
+                    id: c.id, label: c.label, position: c.position,
+                    items: (c.items || []).sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; })
+                };
+            }).sort(byPos)
+        };
+    }).sort(byPos);
+    render();
+}
+
+async function call(fn, args, okMsg) {
+    var r = await sb.rpc(fn, Object.assign({ p_name: auth.name, p_pass: auth.pass }, args));
+    if (r.error) {
+        if (/Invalid credentials/i.test(r.error.message)) {
+            toast("Your login is no longer valid. Sign in again.", true);
+            $("logoutBtn").click();
+        } else {
+            toast(r.error.message, true);
+        }
+        return false;
+    }
+    toast(okMsg + " (" + r.data + ")");
+    await load();
+    return true;
+}
+
+// ---------- render ----------
+function itemRow(it) {
+    return '<div class="item">' +
+        '<input type="text" id="it-' + it.id + '" value="' + esc(it.title) + '" aria-label="Item title">' +
+        '<input type="date" id="id-' + it.id + '" value="' + esc(it.date) + '" aria-label="Date">' +
+        '<button data-act="save-item" data-id="' + it.id + '">Save</button>' +
+        '<button class="danger" data-act="del-item" data-id="' + it.id + '">Delete</button>' +
+        (it.updated_by ? '<div class="by">Last updated by ' + esc(it.updated_by) + '</div>' : '') +
+        '</div>';
+}
+
+function render() {
+    if (!subjects.length) {
+        $("list").innerHTML = '<p class="empty">No courses yet. Add your first course above.</p>';
+        return;
+    }
+    $("list").innerHTML = subjects.map(function (s) {
+        var cats = s.cats.map(function (c) {
+            return '<div class="cat">' +
+                '<div class="cathead">' +
+                '<input id="cl-' + c.id + '" value="' + esc(c.label) + '" aria-label="List name">' +
+                '<button data-act="save-cat" data-id="' + c.id + '">Rename</button>' +
+                '<button class="danger" data-act="del-cat" data-id="' + c.id + '">Delete list</button>' +
+                '</div>' +
+                (c.items.length ? c.items.map(itemRow).join("") : '<p class="empty">No items yet.</p>') +
+                '<div class="item add">' +
+                '<input type="text" id="nt-' + c.id + '" placeholder="New item title" aria-label="New item title">' +
+                '<input type="date" id="nd-' + c.id + '" aria-label="New item date">' +
+                '<button class="primary" data-act="add-item" data-id="' + c.id + '">Add item</button><span></span>' +
+                '</div></div>';
+        }).join("");
+        return '<details class="subj" data-sid="' + s.id + '"' + (openSubj[s.id] ? " open" : "") + '>' +
+            '<summary><span class="sname">' + esc(s.name) + '</span>' +
+            '<span class="meta">' + esc(s.teacher || "No teacher") + ' &middot; ' + s.cats.length + ' list' + (s.cats.length === 1 ? "" : "s") + '</span></summary>' +
+            '<div class="body">' +
+            '<div class="subjhead">' +
+            '<div><label for="sn-' + s.id + '">Course name</label><input id="sn-' + s.id + '" value="' + esc(s.name) + '"></div>' +
+            '<div><label for="st-' + s.id + '">Teacher</label><input id="st-' + s.id + '" value="' + esc(s.teacher) + '"></div>' +
+            '<div class="actions"><button data-act="save-subject" data-id="' + s.id + '">Save course</button>' +
+            '<button class="danger" data-act="del-subject" data-id="' + s.id + '">Delete course</button></div>' +
+            '</div>' + cats +
+            '<div class="addcat"><input id="nc-' + s.id + '" placeholder="New list, e.g. Assignments, Quizzes, Exams" aria-label="New list name">' +
+            '<button class="primary" data-act="add-cat" data-id="' + s.id + '">Add list</button></div>' +
+            '</div></details>';
+    }).join("");
+}
+
+$("list").addEventListener("toggle", function (e) {
+    if (e.target.matches("details.subj")) openSubj[e.target.dataset.sid] = e.target.open;
+}, true);
+
+// ---------- actions ----------
+function v(id) { return $(id).value.trim(); }
+
+document.addEventListener("click", async function (e) {
+    var b = e.target.closest("button[data-act]");
+    if (!b || !auth) return;
+    var id = parseInt(b.dataset.id, 10);
+    switch (b.dataset.act) {
+        case "add-subject":
+            if (!v("ns-name")) return toast("Enter the course name.", true);
+            if (await call("add_subject", { p_sname: v("ns-name"), p_teacher: v("ns-teacher") }, "Course added")) {
+                $("ns-name").value = ""; $("ns-teacher").value = "";
+            }
+            break;
+        case "save-subject":
+            if (!v("sn-" + id)) return toast("Course name can't be empty.", true);
+            openSubj[id] = true;
+            call("edit_subject", { p_id: id, p_sname: v("sn-" + id), p_teacher: v("st-" + id) }, "Course saved");
+            break;
+        case "del-subject":
+            if (!confirm("Delete this course with ALL its lists and items?")) return;
+            call("delete_subject", { p_id: id }, "Course deleted");
+            break;
+        case "add-cat":
+            if (!v("nc-" + id)) return toast("Enter the list name.", true);
+            openSubj[id] = true;
+            call("add_category", { p_subject_id: id, p_label: v("nc-" + id) }, "List added");
+            break;
+        case "save-cat":
+            if (!v("cl-" + id)) return toast("List name can't be empty.", true);
+            call("edit_category", { p_id: id, p_label: v("cl-" + id) }, "List renamed");
+            break;
+        case "del-cat":
+            if (!confirm("Delete this list and all its items?")) return;
+            call("delete_category", { p_id: id }, "List deleted");
+            break;
+        case "add-item":
+            if (!v("nt-" + id) || !v("nd-" + id)) return toast("Enter a title and a date.", true);
+            call("add_item", { p_category_id: id, p_title: v("nt-" + id), p_date: v("nd-" + id) }, "Item added");
+            break;
+        case "save-item":
+            if (!v("it-" + id) || !v("id-" + id)) return toast("Title and date are required.", true);
+            call("edit_item", { p_id: id, p_title: v("it-" + id), p_date: v("id-" + id) }, "Item saved");
+            break;
+        case "del-item":
+            if (!confirm("Delete this item?")) return;
+            call("delete_item", { p_id: id }, "Item deleted");
+            break;
+    }
+});
+</script>
+</body>
+</html>

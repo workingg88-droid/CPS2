@@ -5,8 +5,6 @@ var GROUP_SUBTITLE = "Assignments, Quizzes, Exams";
 
 var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 var dbOk = false;
-var auth = null;      // { name, pass } kept in memory for this visit only
-var flow = null;      // current add/edit/delete conversation
 var subjects = [];    // [{id,name,teacher,cats:[{id,label,items:[{id,title,date,by}]}]}]
 var opts = [];        // tappable options registry
 
@@ -99,22 +97,14 @@ function menuHtml() {
             "<div class='d'>" + (s.teacher ? esc(s.teacher) + "<br>" : "") + esc(line) + "</div></div>");
     });
     var n = subjects.length;
-    html += "<div class='sec'>Manage (password)</div><div class='btns'>" +
-        optBtn("add", "➕ Add (" + (n + 1) + ")") +
-        optBtn("edit", "✏️ Edit (" + (n + 2) + ")") +
-        optBtn("delete", "🗑️ Delete (" + (n + 3) + ")") + "</div>";
     html += "<div class='sec'>More</div><div class='btns'>" +
         optBtn("next", "📅 What's next") +
-        optBtn("clear", "🧹 Clear (" + (n + 4) + ")") + "</div>";
+        optBtn("clear", "🧹 Clear (" + (n + 1) + ")") + "</div>";
     return html;
 }
 
 function showMenu() {
     sendTextMessage("<div class='card'><div class='card-title'>Main menu</div>" + menuHtml() + "</div>");
-}
-
-function setInputType() {
-    document.getElementById("inputMSG").type = (flow && flow.step === "password") ? "password" : "text";
 }
 
 function startFunction() {
@@ -233,7 +223,7 @@ function sendMsg(cmd, display) {
     myDiv.setAttribute("class", "sent");
     greendiv.setAttribute("class", "green");
     dateLabel.setAttribute("class", "dateLabel");
-    greendiv.innerText = (flow && flow.step === "password") ? "\u2022".repeat(ti.length) : shown;
+    greendiv.innerText = shown;
     myDiv.appendChild(greendiv);
     myLI.appendChild(myDiv);
     greendiv.appendChild(dateLabel);
@@ -257,13 +247,12 @@ function matchingCats(word) {
 
 function waitAndResponce(inputText) {
     document.getElementById("lastseen").innerText = "typing...";
-    if (flow) { handleFlow(inputText); return; }
 
     var cmd = inputText.toLowerCase().trim();
     var K = subjects.length;
     var num = /^\d+$/.test(cmd) ? parseInt(cmd, 10) : 0;
     if (num >= 1 && num <= K) { sendTextMessage(subjectMenu(subjects[num - 1])); return; }
-    var actions = ["add", "edit", "delete", "clear"];
+    var actions = ["clear"];
     if (num > K && num <= K + actions.length) cmd = actions[num - K - 1];
 
     switch (cmd) {
@@ -281,17 +270,8 @@ function waitAndResponce(inputText) {
         case "next":
             loadData().then(function () { sendTextMessage(nextOverview()); });
             return;
-        case "add":
-        case "edit":
-        case "delete":
-            startFlow(cmd);
-            return;
         case "clear":
             clearChat();
-            return;
-        case "logout":
-            auth = null;
-            sendTextMessage("Logged out.");
             return;
     }
 
@@ -329,276 +309,6 @@ function waitAndResponce(inputText) {
     setTimeout(() => {
         sendTextMessage("Couldn't catch that...😢<br>Send 'help' to see the options.");
     }, 1000);
-}
-
-// ---------- add / edit / delete conversation ----------
-function say(html) { sendTextMessage("<span class='sk'>" + html + "</span>"); }
-
-// ends the conversation and returns the user to the main menu
-function endFlow() {
-    flow = null;
-    setInputType();
-    setTimeout(showMenu, 700);
-}
-
-var BACK = "(or 'menu' to go back)";
-
-function numbered(arr, labelFn) {
-    return arr.map(function (x, i) { return (i + 1) + ". " + esc(labelFn(x)); }).join("<br>");
-}
-
-// pick by number or by the start of the name
-function pickFrom(t, arr, labelFn) {
-    t = t.toLowerCase().trim();
-    var n = parseInt(t, 10);
-    if (String(n) === t && n >= 1 && n <= arr.length) return arr[n - 1];
-    if (t.length >= 3) {
-        for (var i = 0; i < arr.length; i++) {
-            if (labelFn(arr[i]).toLowerCase().indexOf(t) === 0) return arr[i];
-        }
-    }
-    return null;
-}
-
-function whatPrompt(type) {
-    return "What do you want to " + type + "?<br>1. An item (assignment, quiz, exam...)<br>2. A list (e.g. Assignments) inside a subject<br>3. A subject<br>" + BACK;
-}
-function subjPrompt() { return "Which subject?<br>" + numbered(subjects, function (s) { return s.name; }) + "<br>" + BACK; }
-function catPrompt(subj) { return "Which list of <span class='bold'>" + esc(subj.name) + "</span>?<br>" + numbered(subj.cats, function (c) { return c.label; }) + "<br>" + BACK; }
-
-async function startFlow(type) {
-    await loadData();
-    if (!dbOk) { say("Can't reach the database right now, so editing is unavailable."); setTimeout(showMenu, 700); return; }
-    if (auth) {
-        flow = { type: type, step: "what" };
-        say("Logged in as <span class='bold'>" + esc(auth.name) + "</span>.<br>" + whatPrompt(type));
-    } else {
-        flow = { type: type, step: "name" };
-        say("Editing is protected.<br>Enter your <span class='bold'>name</span> " + BACK + ":");
-    }
-    setInputType();
-}
-
-function validDate(t) {
-    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
-    if (!m) return false;
-    var d = new Date(+m[1], +m[2] - 1, +m[3]);
-    return d.getFullYear() == +m[1] && d.getMonth() == +m[2] - 1 && d.getDate() == +m[3];
-}
-
-function itemList(cat) {
-    return cat.items.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
-}
-
-function listHtml(list) {
-    return list.map(function (i, n) { return (n + 1) + ". " + esc(i.title) + " (" + i.date + ")"; }).join("<br>");
-}
-
-function rpcFail(e) {
-    if (e && /Invalid credentials/i.test(e.message || "")) {
-        auth = null;
-        say("❌ Wrong name or password.");
-    } else {
-        say("❌ " + esc((e && e.message) || "Something went wrong."));
-    }
-    endFlow();
-}
-
-function B(t) { return "<span class='bold'>" + esc(t) + "</span>"; }
-
-// runs an RPC, refreshes data, shows `okHtml(editorName)` and returns to the menu
-async function runRpc(fn, args, okHtml) {
-    var r = await sb.rpc(fn, Object.assign({ p_name: auth.name, p_pass: auth.pass }, args));
-    if (r.error) { rpcFail(r.error); return; }
-    await loadData();
-    say("✅ " + B(r.data) + " " + okHtml);
-    endFlow();
-}
-
-async function handleFlow(text) {
-    var t = text.trim();
-    var low = t.toLowerCase();
-    if (low === "cancel" || low === "menu" || low === "back") { endFlow(); say("Cancelled."); return; }
-
-    switch (flow.step) {
-        case "name":
-            flow.name = t;
-            flow.step = "password";
-            setInputType();
-            say("Enter your <span class='bold'>password</span>:");
-            break;
-
-        case "password":
-            var r = await sb.rpc("editor_login", { p_name: flow.name, p_pass: t });
-            if (r.error) { rpcFail(r.error); break; }
-            auth = { name: r.data, pass: t };
-            flow.step = "what";
-            setInputType();
-            say("✅ Welcome " + B(auth.name) + "!<br>" + whatPrompt(flow.type));
-            break;
-
-        case "what":
-            var w = { "1": "item", "2": "list", "3": "subject", "item": "item", "list": "list", "subject": "subject" }[low];
-            if (!w) { say("Please send 1, 2 or 3 " + BACK + "."); break; }
-            flow.what = w;
-            if (w === "subject" && flow.type === "add") {
-                flow.step = "sname";
-                say("Send the <span class='bold'>subject name</span>:");
-                break;
-            }
-            if (!subjects.length) { endFlow(); say("There are no subjects yet. Add one first."); break; }
-            flow.step = "subj";
-            say(subjPrompt());
-            break;
-
-        // ----- add subject -----
-        case "sname":
-            if (!t) { say("Name can't be empty."); break; }
-            flow.sname = t;
-            flow.step = "steacher";
-            say("Send the <span class='bold'>teacher name</span>, or '-' for none:");
-            break;
-        case "steacher":
-            await runRpc("add_subject", { p_sname: flow.sname, p_teacher: t === "-" ? "" : t },
-                "added subject " + B(flow.sname) + (t === "-" ? "." : " (" + esc(t) + ")."));
-            break;
-
-        // ----- choose subject -----
-        case "subj":
-            var sj = pickFrom(t, subjects, function (s) { return s.name; });
-            if (!sj) { say("Please send a number from 1 to " + subjects.length + " " + BACK + "."); break; }
-            flow.subj = sj;
-            if (flow.what === "subject") {
-                if (flow.type === "edit") {
-                    flow.step = "snewname";
-                    say("Current name: " + B(sj.name) + "<br>Send the new name, or '-' to keep it:");
-                } else {
-                    flow.step = "confirm";
-                    say("Delete subject " + B(sj.name) + " with ALL its lists and items?<br>Send 'yes' to confirm " + BACK + ".");
-                }
-            } else if (flow.what === "list") {
-                if (flow.type === "add") {
-                    flow.step = "lname";
-                    say("Send the <span class='bold'>list name</span> (e.g. Assignments, Quizzes, Exams):");
-                } else if (!sj.cats.length) {
-                    endFlow(); say("This subject has no lists yet.");
-                } else {
-                    flow.step = "pickcat";
-                    say(catPrompt(sj));
-                }
-            } else {
-                if (!sj.cats.length) { endFlow(); say("This subject has no lists yet. Add a list first."); break; }
-                flow.step = "cat";
-                say(catPrompt(sj));
-            }
-            break;
-
-        // ----- lists -----
-        case "lname":
-            if (!t) { say("Name can't be empty."); break; }
-            await runRpc("add_category", { p_subject_id: flow.subj.id, p_label: t },
-                "added list " + B(t) + " to " + B(flow.subj.name) + ".");
-            break;
-
-        case "pickcat":
-            var pc = pickFrom(t, flow.subj.cats, function (c) { return c.label; });
-            if (!pc) { say("Please send a number from 1 to " + flow.subj.cats.length + " " + BACK + "."); break; }
-            flow.cat = pc;
-            if (flow.type === "edit") {
-                flow.step = "newlabel";
-                say("Current name: " + B(pc.label) + "<br>Send the new name:");
-            } else {
-                flow.step = "confirm";
-                say("Delete list " + B(pc.label) + " and its " + pc.items.length + " item(s)?<br>Send 'yes' to confirm " + BACK + ".");
-            }
-            break;
-
-        case "newlabel":
-            if (!t) { say("Name can't be empty."); break; }
-            await runRpc("edit_category", { p_id: flow.cat.id, p_label: t },
-                "renamed list " + B(flow.cat.label) + " → " + B(t) + ".");
-            break;
-
-        // ----- edit subject -----
-        case "snewname":
-            flow.newName = (t === "-") ? flow.subj.name : t;
-            flow.step = "snewteacher";
-            say("Current teacher: " + B(flow.subj.teacher || "(none)") + "<br>Send the new teacher, '-' to keep it, or 'none' to clear it:");
-            break;
-        case "snewteacher":
-            var nt = (t === "-") ? flow.subj.teacher : (low === "none" ? "" : t);
-            await runRpc("edit_subject", { p_id: flow.subj.id, p_sname: flow.newName, p_teacher: nt },
-                "updated subject " + B(flow.subj.name) + "<br>→ " + B(flow.newName) + (nt ? " (" + esc(nt) + ")" : "") + ".");
-            break;
-
-        // ----- items -----
-        case "cat":
-            var c = pickFrom(t, flow.subj.cats, function (x) { return x.label; });
-            if (!c) { say("Please send a number from 1 to " + flow.subj.cats.length + " " + BACK + "."); break; }
-            flow.cat = c;
-            if (flow.type === "add") {
-                flow.step = "title";
-                say("Send the <span class='bold'>title</span> (e.g. Assignment 7):");
-            } else {
-                var list = itemList(c);
-                if (!list.length) { endFlow(); say("Nothing in " + B(c.label) + " yet."); break; }
-                flow.list = list;
-                flow.step = "pick";
-                say("Send the <span class='bold'>number</span> of the item:<br><br>" + listHtml(list));
-            }
-            break;
-
-        case "title":
-            if (!t) { say("Title can't be empty."); break; }
-            flow.title = t;
-            flow.step = "date";
-            say("Send the <span class='bold'>date</span> as YYYY-MM-DD (e.g. 2026-11-20):");
-            break;
-
-        case "date":
-            if (!validDate(t)) { say("Invalid date. Use YYYY-MM-DD, e.g. 2026-11-20."); break; }
-            await runRpc("add_item", { p_category_id: flow.cat.id, p_title: flow.title, p_date: t },
-                "added " + B(flow.title) + " to " + B(flow.subj.name) + " - " + B(flow.cat.label) + " (" + t + ").");
-            break;
-
-        case "pick":
-            var n = parseInt(t, 10);
-            if (!(n >= 1 && n <= flow.list.length)) { say("Send a number between 1 and " + flow.list.length + "."); break; }
-            flow.item = flow.list[n - 1];
-            if (flow.type === "edit") {
-                flow.step = "newtitle";
-                say("Current title: " + B(flow.item.title) + "<br>Send the new title, or '-' to keep it:");
-            } else {
-                flow.step = "confirm";
-                say("Delete " + B(flow.item.title) + " (" + flow.item.date + ")?<br>Send 'yes' to confirm " + BACK + ".");
-            }
-            break;
-
-        case "newtitle":
-            flow.newTitle = (t === "-") ? flow.item.title : t;
-            flow.step = "newdate";
-            say("Current date: " + B(flow.item.date) + "<br>Send the new date (YYYY-MM-DD), or '-' to keep it:");
-            break;
-
-        case "newdate":
-            var nd = (t === "-") ? flow.item.date : t;
-            if (!validDate(nd)) { say("Invalid date. Use YYYY-MM-DD, or '-' to keep."); break; }
-            await runRpc("edit_item", { p_id: flow.item.id, p_title: flow.newTitle, p_date: nd },
-                "updated " + B(flow.item.title) + "<br>→ " + B(flow.newTitle) + " (" + nd + ")");
-            break;
-
-        // ----- delete (item / list / subject) -----
-        case "confirm":
-            if (low !== "yes") { say("Send 'yes' to delete, or 'menu' to go back."); break; }
-            if (flow.what === "item") {
-                await runRpc("delete_item", { p_id: flow.item.id }, "🗑️ deleted " + B(flow.item.title) + ".");
-            } else if (flow.what === "list") {
-                await runRpc("delete_category", { p_id: flow.cat.id }, "🗑️ deleted list " + B(flow.cat.label) + ".");
-            } else {
-                await runRpc("delete_subject", { p_id: flow.subj.id }, "🗑️ deleted subject " + B(flow.subj.name) + ".");
-            }
-            break;
-    }
 }
 
 function clearChat() {
