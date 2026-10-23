@@ -8,7 +8,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
     <script src="config.js"></script>
     <script src="script.js"></script>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#202c33">
     <meta property="og:site_name" content="CPS2">
     <meta property="og:title" content="CPS2 - Assignments, Quiz, Exams" />
     <meta property="og:description"
@@ -73,8 +74,8 @@
 
     <footer>
         <div class="sendBar">
-            <input id="inputMSG" onkeypress="isEnter(event)" type="text" placeholder="Type a message" autofocus>
-            <svg onclick="sendMsg()" viewBox="0 0 24 24" width="24" height="24" class="">
+            <input id="inputMSG" onkeypress="isEnter(event)" type="text" placeholder="Type a message" enterkeyhint="send" autocomplete="off" aria-label="Message">
+            <svg onclick="sendMsg()" viewBox="0 0 24 24" width="24" height="24" role="button" aria-label="Send">
                 <path fill="currentColor"
                     d="M1.101 21.757 23.8 12.028 1.101 2.3l.011 7.912 13.623 1.816-13.623 1.817-.011 7.912z"></path>
             </svg>
